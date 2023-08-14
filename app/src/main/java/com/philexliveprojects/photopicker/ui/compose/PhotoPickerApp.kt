@@ -1,5 +1,6 @@
 package com.philexliveprojects.photopicker.ui.compose
 
+import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -29,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -40,6 +42,7 @@ import com.philexliveprojects.photopicker.ui.theme.PhotoPickerTheme
 import com.philexliveprojects.photopicker.ui.viewmodels.PhotoPickerViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.io.IOException
 
 @Composable
 fun PhotoPickerApp(
@@ -48,28 +51,38 @@ fun PhotoPickerApp(
     val uiState by viewModel.uiState.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
-    PhotoPickerContent(uiState.list) {
-        coroutineScope.launch(Dispatchers.IO) {
-            viewModel.addPhoto(it)
+    PhotoPickerContent(
+        photos = uiState.list,
+        addPhoto = {
+            coroutineScope.launch(Dispatchers.IO) { viewModel.addPhoto(it) }
+        },
+        deletePhoto = {
+            coroutineScope.launch(Dispatchers.IO) { viewModel.deletePhoto(it) }
         }
-    }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PhotoPickerContent(
     photos: List<Photo>,
-    addPhoto: (Uri) -> Unit
+    addPhoto: (Uri) -> Unit,
+    deletePhoto: (Photo) -> Unit
 ) {
+    val context = LocalContext.current
     val launcher =
         rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
             if (uri != null) {
                 Log.d("PhotoPickerApp", "Selected URI: $uri")
+
+                val flag = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, flag)
                 addPhoto(uri)
             } else {
                 Log.d("PhotoPickerApp", "No media selected")
             }
         }
+
     Scaffold(
         topBar = {
             TopAppBar(title = { Text(text = stringResource(R.string.app_name)) })
@@ -99,7 +112,17 @@ fun PhotoPickerContent(
             contentPadding = PaddingValues(12.dp)
         ) {
             items(photos, key = { it.id }) {
-                ImageCard(it, onClick = { /*TODO*/ })
+                if (
+                    try {
+                        context.contentResolver.openInputStream(it.uri)?.use {}; true
+                    } catch (e: IOException) {
+                        false
+                    }
+                ) {
+                    ImageCard(it, onClick = { /*TODO*/ })
+                } else {
+                    deletePhoto(it)
+                }
             }
         }
     }
